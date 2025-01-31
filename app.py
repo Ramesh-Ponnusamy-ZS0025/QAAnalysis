@@ -150,7 +150,7 @@ def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure
     cursor.close()
     conn.close()
 
-    print("Test case inserted successfully.")
+    # print("Test case inserted successfully.")
 
 def read_cucumber_report(file_path,project_name,report_type):
     # Read HTML file
@@ -326,4 +326,4 @@ def analyze():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True,port=8081,host='0.0.0.0')
