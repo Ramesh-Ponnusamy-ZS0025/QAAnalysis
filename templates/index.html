@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenRelease</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .purple-header {
+            background-color: #5D4B8C;
+        }
+        .purple-button {
+            background-color: #5D4B8C;
+        }
+        .purple-button:hover {
+            background-color: #4A3D70;
+        }
+
+        /* Updated tab styles */
+        .tab-nav {
+            display: flex;
+            width: 100%;
+            background-color: #f3f4f6;
+        }
+
+        .tab-button {
+            flex: 1;
+            text-align: center;
+            padding: 0.75rem;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+            font-size: 0.875rem;
+            color: #4b5563;
+        }
+
+        .tab-button:hover {
+            background-color: #e5e7eb;
+        }
+
+        .tab-button.active {
+            border-bottom: 2px solid #5D4B8C;
+            color: #5D4B8C;
+            font-weight: 500;
+            background-color: white;
+        }
+
+        td {
+            max-width: 150px;
+            word-wrap: break-word;
+            white-space: normal;
+            overflow-wrap: break-word;
+            font-size: 0.875rem;
+            padding: 0.5rem 1rem;
+        }
+
+        th {
+            font-size: 0.75rem;
+            padding: 0.5rem 1rem;
+        }
+
+        .results-container {
+            height: calc(100vh - 450px);
+            min-height: 300px;
+            overflow-y: auto;
+            overflow-x: auto;
+        }
+
+        .expandable-content {
+            display: none;
+            padding: 0.5rem;
+            word-wrap: break-word;
+            white-space: normal;
+            margin-top: 0.25rem;
+            font-size: 0.875rem;
+        }
+
+        .expand-btn {
+            color: blue;
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 0.875rem;
+        }
+
+        .main-container {
+            height: 100vh;
+            max-height: 100vh;
+            overflow: hidden;
+            padding: 1rem;
+        }
+
+        .content-card {
+            height: calc(100vh - 2rem);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-section {
+            padding: 1.5rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="main-container">
+        <div class="content-card bg-white rounded-lg shadow-lg">
+            <!-- Header -->
+            <div class="purple-header text-white p-3 rounded-t-lg">
+                <h1 class="text-xl">ZenRelease</h1>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tab-nav">
+                <button class="tab-button active" data-tab="report">Report</button>
+                <button class="tab-button" data-tab="analyze">Analyze</button>
+                <button class="tab-button" data-tab="predict">Predict</button>
+            </div>
+
+            <!-- Report Tab Content -->
+            <div id="report-tab" class="tab-content active flex-1 overflow-hidden">
+                <div class="form-section">
+                    <div class="flex flex-row space-x-6">
+                        <!-- Left Side - Project Details -->
+                        <div class="w-1/2 space-y-4">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-700">Project Name</label>
+                                <input type="text" id="project-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+                            </div>
+
+                            <div class="mt-6">
+                                <label class="block text-xs font-medium text-gray-700">Report Type</label>
+                                <select id="report-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+                                    <option>Extent Report</option>
+                                    <option>Allure Report</option>
+                                    <option>Custom Report</option>
+                                    <option>XML</option>
+                                    <option>JSON</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Right Side - File Upload -->
+                        <div class="w-1/2">
+                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center h-32 flex flex-col justify-center">
+                                <input type="file" id="file-upload" class="hidden" accept=".html,.xlsx,.json,.xml">
+                                <label for="file-upload" class="cursor-pointer">
+                                    <div class="text-gray-600 text-sm">Click or drag file to this area to upload</div>
+                                    <div class="text-xs text-gray-500 mt-2">Formats accepted are .json and .zip</div>
+                                </label>
+                                <div id="upload-status" class="mt-2 text-xs text-gray-500"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Table -->
+                <div class="results-container">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="sticky top-0 bg-gray-50">
+                            <tr>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TCID</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scenario</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Step Name</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failure Reason</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Time</th>
+                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Execution Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-body" class="bg-white divide-y divide-gray-200">
+                            <!-- Results will be populated here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Next Button -->
+                <div class="p-4 flex justify-end border-t">
+                    <button id="next-button" class="purple-button text-white px-4 py-2 text-sm rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                        Next
+                    </button>
+                </div>
+            </div>
+
+            <!-- Analyze Tab Content -->
+            <div id="analyze-tab" class="tab-content p-4">
+                <div id="analysis-loading" class="hidden">
+                    <p class="text-center text-gray-600 text-sm">Analyzing data...</p>
+                </div>
+<!--                <div id="issues-summary" class="space-y-4">-->
+<!--                    &lt;!&ndash; Issues will be populated here &ndash;&gt;-->
+<!--                </div>-->
+                <div id="issuesSummary"></div>
+            </div>
+
+            <!-- Predict Tab Content -->
+            <div id="predict-tab" class="tab-content p-4">
+                <p class="text-sm">Predict content goes here</p>
+            </div>
+        </div>
+    </div>
+ <script>
+ function toggleExpand2(element) {
+      document.querySelectorAll(".expandable-content").forEach(content => {
+            if (content !== element.nextElementSibling) {
+                content.style.display = "none";
+            }
+        });
+
+        // Toggle the clicked section
+        let detailsDiv = element.nextElementSibling;
+        detailsDiv.style.display = (detailsDiv.style.display === "none" || detailsDiv.style.display === "") ? "block" : "none";
+    }
+
+                function toggleExpand(element) {
+                    const content = element.nextElementSibling;
+                    if (content.style.display === "none" || content.style.display === "") {
+                        content.style.display = "block";
+                        element.textContent = "Collapse";
+                    } else {
+                        content.style.display = "none";
+                        element.textContent = "Expand";
+                    }
+                }
+
+                // Updated tab switching functionality
+                function switchTab(tabId) {
+                    // Hide all tab contents
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                    });
+
+                    // Remove active class from all tabs
+                    document.querySelectorAll('.tab-button').forEach(btn => {
+                        btn.classList.remove('active');
+                    });
+
+                    // Show selected tab content and activate tab
+                    document.getElementById(`${tabId}-tab`).classList.add('active');
+                    document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+                }
+
+                // Add click handlers to tabs
+                document.querySelectorAll('.tab-button').forEach(button => {
+                    button.addEventListener('click', () => {
+                        switchTab(button.dataset.tab);
+                    });
+                });
+
+                // File upload handling
+                document.getElementById('file-upload').addEventListener('change', async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    // Append additional data
+                    const projectName = document.getElementById('project-name').value;
+                    const reportType = document.getElementById('report-type').value;
+                    formData.append('project_name', projectName);
+                    formData.append('report_type', reportType);
+
+                    try {
+                        const uploadStatus = document.getElementById('upload-status');
+                        uploadStatus.textContent = 'Uploading...';
+
+                        const response = await fetch('/upload', {
+                            method: 'POST',
+                            body: formData
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            uploadStatus.textContent = 'File uploaded successfully';
+                            uploadStatus.classList.add('text-green-600');
+                            analysisData = data.processed_group_data;
+
+                            // Update results table
+                            const resultsBody = document.getElementById('results-body');
+                            resultsBody.innerHTML = data.processed_data.map(row => `
+                                <tr>
+                                <td class="px-6 py-4 text-sm text-gray-500">${row["TCID"]}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Scenario"]}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Step Name"]}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Failure Reason"]}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">
+                                        <span class="expand-btn" onclick="toggleExpand(this)">Expand</span>
+                                        <div class="expandable-content">${row["Error"]}</div>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Start Time"]}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["End Time"]}</td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Execution Time"]}</td>
+                                </tr>
+                            `).join('');
+
+                            document.getElementById('next-button').disabled = false;
+                        } else {
+                            uploadStatus.textContent = data.error;
+                            uploadStatus.classList.add('text-red-600');
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        uploadStatus.textContent = 'An error occurred while uploading the file';
+                        uploadStatus.classList.add('text-red-600');
+                    }
+                });
+
+                // Updated Next button handling
+                document.getElementById('next-button').addEventListener('click', () => {
+                        if (!analysisData.length) {
+                            alert('No data available. Please upload a file first.');
+                            return;
+                        }
+
+                        switchTab('analyze'); // Assuming this switches to the "Analyze" tab
+                         let issuesSummary = document.getElementById("issuesSummary");
+
+                        issuesSummary.innerHTML = analysisData.map(issue => `
+                            <div class="bg-red-50 border-l-4 border-red-400 p-4 mb-2">
+                                <p class="font-bold text-red-700 cursor-pointer" onclick="toggleExpand2(this)">
+                                    ${issue["FailureReason"]}
+                                </p>
+                                <div class="expandable-content" style="display: none; padding-left: 10px;">
+                                    ${issue["Details"].map(detail => `
+                                        <p style="color: ${detail["Color"]};">${detail["TestCase"]}: ${detail["StepName"]}</p>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('');
+
+
+                    });
+
+                // Initially disable Next button
+                document.getElementById('next-button').disabled = true;
+            </script>
+</body>
+</html>
