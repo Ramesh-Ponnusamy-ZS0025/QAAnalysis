@@ -291,7 +291,6 @@ def upload_file():
         group by scenario, step_name, failure_reason ;
         """
 
-        print(query)
 
         # Fetch existing test cases from PostgreSQL
         existing_test_cases = {}
@@ -326,7 +325,6 @@ def upload_file():
             )
         ).reset_index()
 
-        print(grouped[0])
 
         processed_data=df.to_dict(orient='records')
 
