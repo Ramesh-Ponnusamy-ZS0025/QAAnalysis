@@ -12,6 +12,10 @@ import json
 import os
 import pandas as pd
 import sqlite3
+import psycopg2
+import configparser
+
+
 app = Flask(__name__)
 
 # Configuration
@@ -25,6 +29,20 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 # Store the last uploaded file path
 last_uploaded_file = None
 
+
+
+def get_db_connection():
+    # Read database credentials from config.ini
+    config = configparser.ConfigParser()
+    config.read('config.ini')
+
+    return psycopg2.connect(
+        host=config['DB Details']['hostname'],
+        database=config['DB Details']['database'],
+        user=config['DB Details']['username'],
+        password=config['DB Details']['pwd'],
+        port=config['DB Details']['port_id']
+    )
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -108,10 +126,10 @@ def separate_failure_and_error(row):
 # Function to create table if it doesn't exist
 def create_table():
     # Connect to SQLite database
-    conn = sqlite3.connect('test_cases.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute("""drop table if exists TestCases """)
-    conn.commit()
+    # cursor.execute("""drop table if exists TestCases """)
+    # conn.commit()
     # Create table if it doesn't exist
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS TestCases (
@@ -136,13 +154,13 @@ def create_table():
     conn.close()
 def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time):
     # Connect to the SQLite database
-    conn = sqlite3.connect('test_cases.db')
+    conn = get_db_connection()
     cursor = conn.cursor()
 
     # Insert the test case into the database
     cursor.execute("""
-    INSERT INTO TestCases (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time)
-    VALUES (?, ?, ?, ?, ?, ?, ?,?,?,?)
+    INSERT INTO test_cases (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time))
 
     # Commit the transaction and close the connection
@@ -225,23 +243,16 @@ def read_cucumber_report(file_path,project_name,report_type):
                                          "Execution Time"])
     df = df.apply(separate_failure_and_error, axis=1)
     df['TCID'] = df['Scenario'].str.extract(r'^(C\d+)')
-    create_table()
-    # Insert DataFrame rows into SQLite database
-    for _, row in df.iterrows():
-        insert_test_case(project_name,report_type,
-            row["TCID"],
-            row["Scenario"],
-            row["Step Name"],
-            row["Failure Reason"],
-            row["Error"],
-            row["Start Time"],
-            row["End Time"],
-            row["Execution Time"]
-        )
+    # create_table()
 
-    print(f"Inserted {len(df)} test cases into the database.")
+
 
     return df
+def get_color_code(querystr):
+    conn = get_db_connection()
+    df = pd.read_sql(querystr,conn=conn)
+    print(df)
+    conn.close()
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
@@ -267,19 +278,101 @@ def upload_file():
         file_type = filename.rsplit('.', 1)[1].lower()
         # processed_data = process_file(file_path, file_type)
         df = read_cucumber_report(file_path,project_name,report_type)
-        processed_data=df.to_dict(orient='records')
 
-        EXISTING_TEST_CASES = {"C134871_Provider_ValidateAthenaPatientVitals", "TC7410", "TC8114"}
+        conditions = [
+            f"('{row['Scenario']}', '{row['Step Name']}', '{row['Failure Reason']}')"
+            for _, row in df.iterrows()
+        ]
+
+        query = f"""
+        SELECT scenario, step_name, failure_reason ,count(*)
+        FROM test_cases
+        WHERE (scenario, step_name, failure_reason) IN ({', '.join(conditions)})
+        group by scenario, step_name, failure_reason ;
+        """
+
+        print(query)
+
+        # Fetch existing test cases from PostgreSQL
+        existing_test_cases = {}
+
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(query)
+            for row in cursor.fetchall():
+                scenario, step, failure_reason, count = row
+                existing_test_cases[(scenario, step, failure_reason)] = count  # Store as dict with count
+            conn.close()
+        except Exception as e:
+            print("Database Error:", e)
 
         # Process and group the data
         grouped = df.groupby('Failure Reason').apply(
-            lambda x: [
-                {"TestCase": scenario,
-                 "StepName": step,
-                 "Color": "red" if scenario in EXISTING_TEST_CASES else "black"}
-                for scenario, step in zip(x['Scenario'], x['Step Name'])
-            ]
+            lambda x: sorted(  # Sort descending by count
+                [
+                    {
+                        "TestCase": scenario,
+                        "StepName": f"{step} (Count: {existing_test_cases.get((scenario, step, failure_reason), 0)})",
+                        "FailureReason": failure_reason,
+                        "Color": "red" if (scenario, step, failure_reason) in existing_test_cases else "black",
+                        "Count": existing_test_cases.get((scenario, step, failure_reason), 0)
+                        # Store count separately for sorting
+                    }
+                    for scenario, step, failure_reason in zip(x['Scenario'], x['Step Name'], x['Failure Reason'])
+                ],
+                key=lambda item: item["Count"],  # Sort based on count
+                reverse=True  # Descending order
+            )
         ).reset_index()
+
+        print(grouped[0])
+
+        processed_data=df.to_dict(orient='records')
+
+        # EXISTING_TEST_CASES = {"C134871_Provider_ValidateAthenaPatientVitals", "TC7410", "TC8114"}
+        #
+        # # Process and group the data
+        # grouped = df.groupby('Failure Reason').apply(
+        #     lambda x: [
+        #         {"TestCase": scenario,
+        #          "StepName": step,
+        #          "FailureReason": failure_reason,
+        #          "Color": "red" if scenario in EXISTING_TEST_CASES else "black"}
+        #         for scenario, step, failure_reason in zip(x['Scenario'], x['Step Name'], x['Failure Reason'])
+        #     ]
+        # ).reset_index()
+        #
+        # print('---------------',grouped)
+        # # Generate SQL query
+        # conditions = [
+        #     f"'{scenario}{step}{failure_reason}'"
+        #     for issue_list in grouped[0]
+        #     for scenario, step, failure_reason in [(issue_list['TestCase'], issue_list['StepName'], issue_list['FailureReason'])]
+        # ]
+        #
+        # query = f"""
+        # SELECT * FROM test_cases
+        # WHERE CONCAT(scenario, step_name, failure_reason) IN ({', '.join(conditions)});
+        # """
+        #
+        # print(query)
+
+        # Insert DataFrame rows into SQLite database
+        for _, row in df.iterrows():
+            insert_test_case(project_name, report_type,
+                             row["TCID"],
+                             row["Scenario"],
+                             row["Step Name"],
+                             row["Failure Reason"],
+                             row["Error"],
+                             row["Start Time"],
+                             row["End Time"],
+                             row["Execution Time"]
+                             )
+
+        print(f"Inserted {len(df)} test cases into the database.")
+
 
         # Convert to JSON format for frontend
         processed_group_data = [
@@ -287,7 +380,7 @@ def upload_file():
             for _, row in grouped.iterrows()
         ]
 
-        print(processed_group_data)
+        # print(processed_group_data)
         return jsonify({
             'message': 'File uploaded successfully',
             'processed_data': processed_data
