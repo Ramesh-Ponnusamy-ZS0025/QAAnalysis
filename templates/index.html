@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZenRelease</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.4.2/echarts.min.js"></script>
+
+
     <style>
         .tab-content {
             display: none;
@@ -104,7 +108,70 @@
         .form-section {
             padding: 1.5rem;
         }
-    </style>
+         #predict-tab {
+        height: calc(100vh - 140px); /* Account for header and tabs */
+        overflow-y: auto;
+        padding: 1.5rem;
+    }
+
+    .charts-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .chart-container {
+        width: 100%;
+        height: 400px;
+        background: white;
+        border-radius: 8px;
+        padding: 1rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .confusion-matrix-section {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-top: 1.5rem;
+    }
+
+    .confusion-table {
+        width: 100%;
+        max-width: 500px;
+        margin: 1rem auto;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .confusion-table th {
+        background: #5D4B8C;
+        color: white;
+        padding: 1rem;
+        font-weight: 500;
+    }
+
+    .confusion-table td {
+        padding: 1rem;
+        text-align: center;
+        border: 1px solid #e2e8f0;
+        font-size: 1rem;
+    }
+
+    .section-title {
+        color: #2d3748;
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #5D4B8C;
+    }
+    .hidden {
+    display: none;
+}
+</style>
 </head>
 <body class="bg-gray-100">
     <div class="main-container">
@@ -117,70 +184,81 @@
             <!-- Tabs -->
             <div class="tab-nav">
                 <button class="tab-button active" data-tab="report">Report</button>
-                <button class="tab-button" data-tab="analyze">Analyze</button>
+                <button class="tab-button hidden " id="analyze-tab-button"  data-tab="analyze" >Analyze</button>
                 <button class="tab-button" data-tab="predict">Predict</button>
             </div>
 
             <!-- Report Tab Content -->
             <div id="report-tab" class="tab-content active flex-1 overflow-hidden">
-                <div class="form-section">
-                    <div class="flex flex-row space-x-6">
-                        <!-- Left Side - Project Details -->
-                        <div class="w-1/2 space-y-4">
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700">Project Name</label>
-                                <input type="text" id="project-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
-                            </div>
-
-                            <div class="mt-6">
-                                <label class="block text-xs font-medium text-gray-700">Report Type</label>
-                                <select id="report-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
-                                    <option>Extent Report</option>
-                                    <option>Allure Report</option>
-                                    <option>Custom Report</option>
-                                    <option>XML</option>
-                                    <option>JSON</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Right Side - File Upload -->
-                        <div class="w-1/2">
-                            <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center h-32 flex flex-col justify-center">
-                                <input type="file" id="file-upload" class="hidden" accept=".html,.xlsx,.json,.xml">
-                                <label for="file-upload" class="cursor-pointer">
-                                    <div class="text-gray-600 text-sm">Click or drag file to this area to upload</div>
-                                    <div class="text-xs text-gray-500 mt-2">Formats accepted are .json and .zip</div>
-                                </label>
-                                <div id="upload-status" class="mt-2 text-xs text-gray-500"></div>
-                            </div>
-                        </div>
-                    </div>
+    <div class="form-section">
+        <div class="flex flex-row space-x-6">
+            <!-- Left Side - Project Details -->
+            <div class="w-1/2 space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-gray-700">Project Name <span class="text-red-500">*</span></label>
+                    <input type="text" id="project-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm" required>
+                    <span id="project-name-error" class="text-red-500 text-xs hidden">Project name is required</span>
                 </div>
+
+                <div class="mt-6">
+                    <label class="block text-xs font-medium text-gray-700">Report Type</label>
+                    <select id="report-type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+                        <option>Extent Report</option>
+                        <option>Allure Report</option>
+                        <option>Custom Report</option>
+                        <option>XML</option>
+                        <option>JSON</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Right Side - File Upload -->
+            <div class="w-1/2">
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center h-32 flex flex-col justify-center">
+                    <input type="file" id="file-upload" class="hidden" accept=".html,.xlsx,.json,.xml">
+                    <label for="file-upload" class="cursor-pointer">
+                        <div class="text-gray-600 text-sm">Click or drag file to this area to upload</div>
+                        <div class="text-xs text-gray-500 mt-2">Formats accepted are .json and .zip</div>
+                    </label>
+                    <div id="selected-file" class="mt-2  text-xs text-green-500"></div>
+                    <div id="upload-status" class="mt-2 text-xs text-gray-500"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Process Button -->
+        <div class="mt-6 flex justify-center">
+            <button id="process-button" class="purple-button text-white px-6 py-2 text-sm rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                Process
+            </button>
+        </div>
+    </div>
 
                 <!-- Results Table -->
-                <div class="results-container">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="sticky top-0 bg-gray-50">
-                            <tr>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TCID</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scenario</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Step Name</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failure Reason</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Error</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Time</th>
-                                <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Execution Time</th>
-                            </tr>
-                        </thead>
-                        <tbody id="results-body" class="bg-white divide-y divide-gray-200">
-                            <!-- Results will be populated here -->
-                        </tbody>
-                    </table>
-                </div>
-
+                 <div class="results-container">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="sticky top-0 bg-gray-50">
+                                <tr>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TCID</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scenario</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Step Name</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failure Reason</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Time</th>
+                                    <th class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Execution Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-body" class="bg-white divide-y divide-gray-200">
+                                <!-- Results will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
                 <!-- Next Button -->
-                <div class="p-4 flex justify-end border-t">
+                <div class="p-4 flex justify-between border-t bg-gray-50">
+                    <button id="apply-new-button" class="bg-gray-600 text-white px-4 py-2 text-sm rounded-md shadow-sm hover:bg-gray-700 transition-all">
+                        Upload New
+                    </button>
                     <button id="next-button" class="purple-button text-white px-4 py-2 text-sm rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                         Next
                     </button>
@@ -199,12 +277,31 @@
             </div>
 
             <!-- Predict Tab Content -->
-            <div id="predict-tab" class="tab-content p-4">
-                <p class="text-sm">Predict content goes here</p>
+<!--            <div id="predict-tab" class="tab-content p-4">-->
+<!--                <p class="text-sm">Predict content goes here</p>-->
+<!--            </div>-->
+             <div id="predict-tab" class="tab-content">
+                <h2 class="section-title">Prediction Analysis</h2>
+
+                <div class="charts-grid">
+                    <!-- The line charts will be rendered here in a 2-column grid -->
+                </div>
+
+                <div class="confusion-matrix-section">
+                    <h2 class="section-title">Confusion Matrix</h2>
+                    <div id="confusion-matrix-container"></div>
+                </div>
             </div>
+        </div>
         </div>
     </div>
  <script>
+  document.getElementById('file-upload').addEventListener('change', function(event) {
+        var fileName = event.target.files[0] ? event.target.files[0].name : 'No file selected';
+        document.getElementById('selected-file').textContent = 'Selected file: ' + fileName;
+        document.getElementById('process-button').disabled = false;
+    });
+
  function toggleExpand2(element) {
       document.querySelectorAll(".expandable-content").forEach(content => {
             if (content !== element.nextElementSibling) {
@@ -230,31 +327,33 @@
 
                 // Updated tab switching functionality
                 function switchTab(tabId) {
-                    // Hide all tab contents
-                    document.querySelectorAll('.tab-content').forEach(content => {
-                        content.classList.remove('active');
-                    });
+                        document.querySelectorAll('.tab-content').forEach(content => {
+                            content.classList.remove('active');
+                        });
 
-                    // Remove active class from all tabs
-                    document.querySelectorAll('.tab-button').forEach(btn => {
-                        btn.classList.remove('active');
-                    });
+                        document.querySelectorAll('.tab-button').forEach(btn => {
+                            btn.classList.remove('active');
+                        });
 
-                    // Show selected tab content and activate tab
-                    document.getElementById(`${tabId}-tab`).classList.add('active');
-                    document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-                }
+                        document.getElementById(`${tabId}-tab`).classList.add('active');
+                        document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
 
-                // Add click handlers to tabs
-                document.querySelectorAll('.tab-button').forEach(button => {
-                    button.addEventListener('click', () => {
-                        switchTab(button.dataset.tab);
+                        // Fetch chart data only when the "Predict" tab is clicked
+                        if (tabId === "predict") {
+                            fetchChartData();
+                        }
+                    }
+
+                // Attach event listeners
+                    document.querySelectorAll('.tab-button').forEach(button => {
+                        button.addEventListener('click', () => {
+                            switchTab(button.dataset.tab);
+                        });
                     });
-                });
 
                 // File upload handling
-                document.getElementById('file-upload').addEventListener('change', async (e) => {
-                    const file = e.target.files[0];
+                document.getElementById('process-button').addEventListener('click', async () => {
+                    const file = document.getElementById('file-upload').files[0];
                     if (!file) return;
 
                     const formData = new FormData();
@@ -275,7 +374,7 @@
                         });
 
                         const data = await response.json();
-
+                        console.log(data);
                         if (response.ok) {
                             uploadStatus.textContent = 'File uploaded successfully';
                             uploadStatus.classList.add('text-green-600');
@@ -289,10 +388,7 @@
                                     <td class="px-6 py-4 text-sm text-gray-500">${row["Scenario"]}</td>
                                     <td class="px-6 py-4 text-sm text-gray-500">${row["Step Name"]}</td>
                                     <td class="px-6 py-4 text-sm text-gray-500">${row["Failure Reason"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">
-                                        <span class="expand-btn" onclick="toggleExpand(this)">Expand</span>
-                                        <div class="expandable-content">${row["Error"]}</div>
-                                    </td>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Status"]}</td>
                                     <td class="px-6 py-4 text-sm text-gray-500">${row["Start Time"]}</td>
                                     <td class="px-6 py-4 text-sm text-gray-500">${row["End Time"]}</td>
                                     <td class="px-6 py-4 text-sm text-gray-500">${row["Execution Time"]}</td>
@@ -317,6 +413,8 @@
                             alert('No data available. Please upload a file first.');
                             return;
                         }
+                         const analyzeTabButton = document.getElementById('analyze-tab-button');
+                         analyzeTabButton.classList.remove('hidden');
 
                         switchTab('analyze'); // Assuming this switches to the "Analyze" tab
                          let issuesSummary = document.getElementById("issuesSummary");
@@ -339,6 +437,185 @@
 
                 // Initially disable Next button
                 document.getElementById('next-button').disabled = true;
-            </script>
+
+                document.addEventListener("DOMContentLoaded", function() {
+                    if (document.querySelector('[data-tab="predict"]')) {
+                        document.querySelector('[data-tab="predict"]').addEventListener("click", fetchChartData);
+                    }
+                });
+
+        function fetchChartData() {
+        console.log('fetch');
+                fetch('/api/chart-data')
+                    .then(response => response.json())
+                    .then(data => { renderCharts(data);
+                                    renderConfusionMatrix(data.confusion_matrix);
+                                    })
+                    .catch(error => console.error("Error fetching data:", error));
+            }
+
+        function renderCharts(data) {
+                let chartContainer = document.querySelector(".charts-grid");
+                chartContainer.innerHTML = "";
+
+                let categories = ["Failed", "Passed"];
+
+                categories.forEach(category => {
+                    let chartDiv = document.createElement("div");
+                    chartDiv.className = "chart-container";
+                    chartContainer.appendChild(chartDiv);
+
+                    let chart = echarts.init(chartDiv);
+
+                    let option = {
+                        title: {
+                            text: `${category} Tests: Actual vs Predicted`,
+                            left: "center",
+                            top: 10,
+                            textStyle: {
+                                fontSize: 16,
+                                fontWeight: 'bold'
+                            }
+                        },
+                        tooltip: {
+                            trigger: "axis",
+                            formatter: function(params) {
+                                let result = params[0].axisValue + '<br/>';
+                                params.forEach(param => {
+                                    result += `${param.seriesName}: ${param.value}<br/>`;
+                                });
+                                return result;
+                            }
+                        },
+                        legend: {
+                            top: 10,
+                right: 10,
+                            data: ["Actual", "Predicted"]
+                        },
+                        grid: {
+                            top: 60,
+                            bottom: 60,
+                            left: 60,
+                            right: 30
+                        },
+                        xAxis: {
+                            type: "category",
+                            data: data.dates,
+                            axisLabel: {
+                                rotate: 45,
+                                fontSize: 12
+                            }
+                        },
+                        yAxis: {
+                            type: "value",
+                            splitLine: {
+                                lineStyle: {
+                                    type: 'dashed'
+                                }
+                            }
+                        },
+                        series: [
+                            {
+                                name: "Actual",
+                                type: "line",
+                                smooth: true,
+                                data: data.dates.map(date => data.actual[date]?.[category] || 0),
+                                color: "#FF5733",
+                                lineStyle: { width: 3 },
+                                symbol: 'circle',
+                                symbolSize: 8
+                            },
+                            {
+                                name: "Predicted",
+                                type: "line",
+                                smooth: true,
+                                data: data.dates.map(date => data.predicted[date]?.[category] || 0),
+                                color: "#3375FF",
+                                lineStyle: { width: 3 },
+                                symbol: 'circle',
+                                symbolSize: 8
+                            }
+                        ]
+                    };
+
+                    chart.setOption(option);
+
+                    // Add resize handling
+                    window.addEventListener('resize', () => {
+                        chart.resize();
+                    });
+                });
+            }
+
+            function renderConfusionMatrix(confMatrix) {
+            console.log('here confusion');
+                    let container = document.getElementById("confusion-matrix-container");
+                    container.innerHTML = `<h3 class="text-md font-semibold text-gray-700">Confusion Matrix for ${confMatrix.latest_date}</h3>`;
+
+                    let table = document.createElement("table");
+                    table.className = "confusion-table";
+
+                    let thead = document.createElement("thead");
+                    let headerRow = document.createElement("tr");
+
+                    confMatrix.columns.forEach(col => {
+                        let th = document.createElement("th");
+                        th.innerText = col;
+                        headerRow.appendChild(th);
+                    });
+
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+
+                    let tbody = document.createElement("tbody");
+
+                    confMatrix.data.forEach(row => {
+                        let tr = document.createElement("tr");
+                        confMatrix.columns.forEach(col => {
+                            let td = document.createElement("td");
+                            td.innerText = row[col] || "0";
+                            tr.appendChild(td);
+                        });
+                        tbody.appendChild(tr);
+                    });
+
+                    table.appendChild(tbody);
+                    container.appendChild(table);
+                }
+
+                document.getElementById('apply-new-button').addEventListener('click', () => {
+    // Clear form inputs
+    document.getElementById('project-name').value = '';
+    document.getElementById('file-upload').value = '';
+    document.getElementById('selected-file').textContent = '';
+    document.getElementById('upload-status').textContent = '';
+    document.getElementById('upload-status').className = 'mt-2 text-xs text-gray-500';
+    document.getElementById('next-button').disabled = true;
+    const analyzeTabButton = document.getElementById('analyze-tab-button');
+    analyzeTabButton.classList.add('hidden');
+
+    // Clear results table
+    document.getElementById('results-body').innerHTML = '';
+
+    // Clear analysis data
+    if (typeof analysisData !== 'undefined') {
+        analysisData = [];
+    }
+
+    // Clear analysis tab content
+    document.getElementById('issuesSummary').innerHTML = '';
+
+    // Disable buttons
+    document.getElementById('next-button').disabled = true;
+    document.getElementById('process-button').disabled = true;
+
+    // Reset validation
+    document.getElementById('project-name-error').classList.add('hidden');
+});
+
+
+
+</script>
+
 </body>
 </html>
