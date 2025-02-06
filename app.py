@@ -14,7 +14,7 @@ import pandas as pd
 import sqlite3
 import psycopg2
 import configparser
-
+from extract_reports import read_json_report
 
 app = Flask(__name__)
 
@@ -29,6 +29,16 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 # Store the last uploaded file path
 last_uploaded_file = None
 
+import math
+
+def sanitize_data(data):
+    if isinstance(data, dict):
+        return {key: sanitize_data(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [sanitize_data(item) for item in data]
+    elif isinstance(data, float) and (math.isnan(data) or math.isinf(data)):
+        return None  # or replace with a default value like 0
+    return data
 
 
 def get_db_connection():
@@ -152,16 +162,16 @@ def create_table():
     conn.commit()
     cursor.close()
     conn.close()
-def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time):
+def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time,status):
     # Connect to the SQLite database
     conn = get_db_connection()
     cursor = conn.cursor()
 
     # Insert the test case into the database
     cursor.execute("""
-    INSERT INTO test_cases (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time))
+    INSERT INTO test_cases (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time,status)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """, (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time,status))
 
     # Commit the transaction and close the connection
     conn.commit()
@@ -169,6 +179,59 @@ def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure
     conn.close()
 
     # print("Test case inserted successfully.")
+
+
+def read_extent_report(file_path,project_name,report_type):
+    data_list = []
+    #  file_path=".//"+filename
+    #  print(file_path)
+    #  with open(file_path, 'r') as f:
+    #    soup = BeautifulSoup(f, 'html.parser')
+    folder_path = 'ExecutionResults/' + project_name
+    # soup = get_file_content_as_soup(folder_path, filename)
+    with open(file_path, 'r', encoding='utf-8') as f:
+        soup = BeautifulSoup(f, 'html.parser')
+    myTable = PrettyTable(
+        ["Scenario", "Step Name", "Status", "Failure Reason", "Error", "Start Time", "End Time", "Execution Time"])
+
+    scenario_list = soup.find('ul', id='test-collection')
+
+    for x in scenario_list.find_all('li'):
+        test_name = x.find('span', class_='test-name').get_text()
+        step_name_arr = x.find_all('td', class_='step-details')
+        start_time = x.find('span', title='Test started time').get_text()
+        end_time = x.find('span', title='Test ended time').get_text()
+        exec_time = x.find('span', title='Time taken to finish').get_text()
+        error = None
+        step_name = None
+        error_list = None
+        reason_list = None
+
+        for y in range(len(step_name_arr)):
+            status = None
+            step_name = step_name_arr[y].get_text()
+            error = None
+            error_arr = []
+            if "FAIL" in step_name_arr[y].get_text():
+                status = "Failed"
+                error = step_name_arr[y + 1].get_text()
+                error_arr = error.split("at ")
+                data_list.append(
+                    [test_name, step_name, error_arr[0], "error", start_time, end_time, exec_time, project_name, status])
+                myTable.add_row([test_name, step_name, status, error_arr[0], "error", start_time, end_time, exec_time])
+            elif "Step No:" in step_name_arr[y].get_text():
+                status = "Passed"
+                data_list.append(
+                    [test_name, step_name, "Null", "Null", start_time, end_time, exec_time, project_name, status])
+                myTable.add_row([test_name, step_name, status, "", "", start_time, end_time, exec_time])
+
+            status = None
+            step_name = None
+            error = None
+    df = pd.DataFrame(myTable.rows, columns=myTable.field_names)
+    df['TCID'] = df['Scenario'].str.extract(r'^(C\d+)')
+    return df
+
 
 def read_cucumber_report(file_path,project_name,report_type):
     # Read HTML file
@@ -244,9 +307,6 @@ def read_cucumber_report(file_path,project_name,report_type):
     df = df.apply(separate_failure_and_error, axis=1)
     df['TCID'] = df['Scenario'].str.extract(r'^(C\d+)')
     # create_table()
-
-
-
     return df
 def get_color_code(querystr):
     conn = get_db_connection()
@@ -277,12 +337,22 @@ def upload_file():
 
         file_type = filename.rsplit('.', 1)[1].lower()
         # processed_data = process_file(file_path, file_type)
-        df = read_cucumber_report(file_path,project_name,report_type)
-
+        if report_type=='Extent Report' and  file_type=='html':
+            df = read_extent_report(file_path,project_name,report_type)
+        elif report_type=='Allure Report' and  file_type=='json':
+            file_full_name = os.path.basename(file_path)
+            file_name, filetype = file_full_name.split('.')
+            df= read_json_report(file_path,file_name ,file_type ,project_name)
+        # df = read_cucumber_report(file_path,project_name,report_type)
+        # print(df.columns)
+        df['Scenario']=df['Scenario'].replace("'","")
+        df['Step Name'] = df['Step Name'].replace("'", "")
+        df['Failure Reason'] = df['Failure Reason'].replace("'", "")
         conditions = [
-            f"('{row['Scenario']}', '{row['Step Name']}', '{row['Failure Reason']}')"
+            f""" ('{row['Scenario'].replace("'","") }', '{row['Step Name'].replace("'","")}', '{row['Failure Reason'].replace("'","")}')"""
             for _, row in df.iterrows()
         ]
+        # conditions_tuple_list = [tuple(condition.split(", ")) for condition in conditions]
 
         query = f"""
         SELECT scenario, step_name, failure_reason ,count(*)
@@ -295,6 +365,8 @@ def upload_file():
         # Fetch existing test cases from PostgreSQL
         existing_test_cases = {}
 
+        # Convert conditions into a list of tuples
+
         try:
             conn = get_db_connection()
             cursor = conn.cursor()
@@ -305,6 +377,7 @@ def upload_file():
             conn.close()
         except Exception as e:
             print("Database Error:", e)
+            raise e
 
         # Process and group the data
         grouped = df.groupby('Failure Reason').apply(
@@ -328,48 +401,21 @@ def upload_file():
 
         processed_data=df.to_dict(orient='records')
 
-        # EXISTING_TEST_CASES = {"C134871_Provider_ValidateAthenaPatientVitals", "TC7410", "TC8114"}
-        #
-        # # Process and group the data
-        # grouped = df.groupby('Failure Reason').apply(
-        #     lambda x: [
-        #         {"TestCase": scenario,
-        #          "StepName": step,
-        #          "FailureReason": failure_reason,
-        #          "Color": "red" if scenario in EXISTING_TEST_CASES else "black"}
-        #         for scenario, step, failure_reason in zip(x['Scenario'], x['Step Name'], x['Failure Reason'])
-        #     ]
-        # ).reset_index()
-        #
-        # print('---------------',grouped)
-        # # Generate SQL query
-        # conditions = [
-        #     f"'{scenario}{step}{failure_reason}'"
-        #     for issue_list in grouped[0]
-        #     for scenario, step, failure_reason in [(issue_list['TestCase'], issue_list['StepName'], issue_list['FailureReason'])]
-        # ]
-        #
-        # query = f"""
-        # SELECT * FROM test_cases
-        # WHERE CONCAT(scenario, step_name, failure_reason) IN ({', '.join(conditions)});
-        # """
-        #
-        # print(query)
-
         # Insert DataFrame rows into SQLite database
-        for _, row in df.iterrows():
-            insert_test_case(project_name, report_type,
-                             row["TCID"],
-                             row["Scenario"],
-                             row["Step Name"],
-                             row["Failure Reason"],
-                             row["Error"],
-                             row["Start Time"],
-                             row["End Time"],
-                             row["Execution Time"]
-                             )
-
-        print(f"Inserted {len(df)} test cases into the database.")
+        # for _, row in df.iterrows():
+        #     insert_test_case(project_name, report_type,
+        #                      row["TCID"],
+        #                      row["Scenario"],
+        #                      row["Step Name"],
+        #                      row["Failure Reason"],
+        #                      row["Error"],
+        #                      row["Start Time"],
+        #                      row["End Time"],
+        #                      row["Execution Time"],
+        #                      row["Status"]
+        #                      )
+        #
+        # print(f"Inserted {len(df)} test cases into the database.")
 
 
         # Convert to JSON format for frontend
@@ -377,8 +423,9 @@ def upload_file():
             {'FailureReason': row['Failure Reason'], 'Details': row[0]}
             for _, row in grouped.iterrows()
         ]
+        processed_data = sanitize_data(processed_data)
+        processed_group_data = sanitize_data(processed_group_data)
 
-        # print(processed_group_data)
         return jsonify({
             'message': 'File uploaded successfully',
             'processed_data': processed_data
@@ -414,6 +461,40 @@ def analyze():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/chart-data')
+def get_chart_data():
+    file_path = 'confusion_matrix.csv'
+    df = pd.read_csv(file_path)
+    df['Date'] = pd.to_datetime(df['Date'])
+
+    # Aggregate Data
+    actual_counts = df.groupby(['Date', 'Actual'])['Count'].sum().unstack(fill_value=0)
+    # print(actual_counts)
+    predicted_counts = df[df['Actual'] == df['Predicted']].groupby(['Date', 'Predicted'])['Count'].sum().unstack(
+        fill_value=0)
+    actual_counts.index = actual_counts.index.astype(str)
+    predicted_counts.index = predicted_counts.index.astype(str)
+    latest_date = df['Date'].max()
+    latest_df = df[df['Date'] == latest_date]
+    confusion_matrix = latest_df.pivot_table(index='Actual', columns='Predicted', values='Count',
+                                             fill_value=0).reset_index()
+
+    # Convert to JSON format
+    data = {
+        "dates": actual_counts.index.tolist(),  # Already converted to str
+        "actual": {str(k): v for k, v in actual_counts.to_dict(orient="index").items()},
+        "predicted": {str(k): v for k, v in predicted_counts.to_dict(orient="index").items()},
+        "confusion_matrix": {
+            "columns": confusion_matrix.columns.tolist(),
+            "data": confusion_matrix.to_dict(orient="records"),
+            "latest_date": latest_date.strftime('%Y-%m-%d')
+        }
+    }
+    # Convert to JSON format
+
+    return jsonify(data)
 
 
 if __name__ == '__main__':
