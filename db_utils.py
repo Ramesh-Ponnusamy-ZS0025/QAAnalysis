@@ -1,28 +1,37 @@
 import psycopg2
 import pandas as pd 
 from configparser import ConfigParser
+import sqlite3
 #from config import Config 
 
+config = ConfigParser()
+config.read("config.ini")
+db_type = config['DB Details']['db_type']
 def db_connect():
- config = ConfigParser()
- config.read("config.ini")
- hostname = config.get('DB Details', 'hostname')
- database = config.get('DB Details', 'database')
- username = config.get('DB Details', 'username')
- pwd = config.get('DB Details', 'pwd')
- port_id = config.get('DB Details', 'port_id')
- conn = psycopg2.connect(
-    host=hostname,
-    dbname=database,
-    user=username,
-    password=pwd,
-    port=port_id)
- return conn
+
+
+    if db_type == 'sqlite':
+        return sqlite3.connect(config['DB Details']['sqlite_db_path'])
+    else:
+        return psycopg2.connect(
+        host=config['DB Details']['hostname'],
+        database=config['DB Details']['database'],
+        user=config['DB Details']['username'],
+        password=config['DB Details']['pwd'],
+        port=config['DB Details']['port_id']
+        )
+def db_query_form(query):
+    if db_type=='sqlite':
+        return query.replace('%s','?')
+    else:
+        return query
+
 
 def get_data(project_name): 
   sql = """select id, scenario scenario_name, step_name, failure_reason, 
-  error, start_time, end_time, execution_time  exec_time, project_name, status "Execution_status" ,NULL execution_type
-   from "test_cases" where project_name=%s;"""
+  error, start_time, end_time, execution_time  exec_time, project_name, status "Execution_status" , execution_type
+   from test_cases where project_name=%s;"""
+  sql = db_query_form(sql)
   conn = None
   cur = None
   try: 
@@ -34,13 +43,14 @@ def get_data(project_name):
     conn.commit()
     cur.close() 
         
-  except (Exception, psycopg2.DatabaseError) as error: 
+  except Exception as error:
     print(error) 
   finally: 
-    if conn is not None: 
-        conn.close()
+
     if cur is not None:
         cur.close()
+    if conn is not None:
+        conn.close()
   column_names = ['id', 'scenario_name', 'step_name', 'failure_reason', 'error', 'start_time', 'end_time', 'exec_time', 'project_name', 'Execution_status', 'execution_type'] 
   df = pd.DataFrame(results, columns=column_names)
   return df

@@ -14,8 +14,10 @@ import pandas as pd
 import sqlite3
 import psycopg2
 import configparser
-from extract_reports import read_json_report
 
+from db_utils import db_query_form
+from extract_reports import read_json_report
+from training import training_model
 app = Flask(__name__)
 
 # Configuration
@@ -28,6 +30,7 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Store the last uploaded file path
 last_uploaded_file = None
+project_name=None
 
 import math
 
@@ -45,14 +48,19 @@ def get_db_connection():
     # Read database credentials from config.ini
     config = configparser.ConfigParser()
     config.read('config.ini')
+    db_type = config['DB Details']['db_type']
 
-    return psycopg2.connect(
-        host=config['DB Details']['hostname'],
-        database=config['DB Details']['database'],
-        user=config['DB Details']['username'],
-        password=config['DB Details']['pwd'],
-        port=config['DB Details']['port_id']
-    )
+    if db_type == 'sqlite':
+        return sqlite3.connect(config['DB Details']['sqlite_db_path'])
+    else:
+        return psycopg2.connect(
+            host=config['DB Details']['hostname'],
+            database=config['DB Details']['database'],
+            user=config['DB Details']['username'],
+            password=config['DB Details']['pwd'],
+            port=config['DB Details']['port_id']
+        )
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -166,12 +174,13 @@ def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure
     # Connect to the SQLite database
     conn = get_db_connection()
     cursor = conn.cursor()
-
-    # Insert the test case into the database
-    cursor.execute("""
+    insert_query = """
     INSERT INTO test_cases (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time,status)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """, (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time,status))
+    """
+    insert_query = db_query_form(insert_query)
+    # Insert the test case into the database
+    cursor.execute(insert_query, (project_name,project_type,tcid,scenario, step_name, failure_reason, error, start_time, end_time, execution_time,status))
 
     # Commit the transaction and close the connection
     conn.commit()
@@ -317,120 +326,124 @@ def get_color_code(querystr):
 @app.route('/upload', methods=['POST'])
 def upload_file():
     global last_uploaded_file
+    try:
 
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
 
-    project_name = request.form.get('project_name')
-    report_type = request.form.get('report_type')
+        project_name = request.form.get('project_name')
+        report_type = request.form.get('report_type')
 
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
 
-        last_uploaded_file = file_path
+            last_uploaded_file = file_path
 
-        file_type = filename.rsplit('.', 1)[1].lower()
-        # processed_data = process_file(file_path, file_type)
-        if report_type=='Extent Report' and  file_type=='html':
-            df = read_extent_report(file_path,project_name,report_type)
-        elif report_type=='Allure Report' and  file_type=='json':
-            file_full_name = os.path.basename(file_path)
-            file_name, filetype = file_full_name.split('.')
-            df= read_json_report(file_path,file_name ,file_type ,project_name)
-        # df = read_cucumber_report(file_path,project_name,report_type)
-        # print(df.columns)
-        df['Scenario']=df['Scenario'].replace("'","")
-        df['Step Name'] = df['Step Name'].replace("'", "")
-        df['Failure Reason'] = df['Failure Reason'].replace("'", "")
-        conditions = [
-            f""" ('{row['Scenario'].replace("'","") }', '{row['Step Name'].replace("'","")}', '{row['Failure Reason'].replace("'","")}')"""
-            for _, row in df.iterrows()
-        ]
-        # conditions_tuple_list = [tuple(condition.split(", ")) for condition in conditions]
+            file_type = filename.rsplit('.', 1)[1].lower()
+            # processed_data = process_file(file_path, file_type)
+            if report_type=='Extent Report' and  file_type=='html':
+                df = read_extent_report(file_path,project_name,report_type)
+            elif report_type=='Allure Report' and  file_type=='json':
+                file_full_name = os.path.basename(file_path)
+                file_name, filetype = file_full_name.split('.')
+                df= read_json_report(file_path,file_name ,file_type ,project_name)
+            # df = read_cucumber_report(file_path,project_name,report_type)
+            # print(df.columns)
+            df['Scenario']=df['Scenario'].replace("'","")
+            df['Step Name'] = df['Step Name'].replace("'", "")
+            df['Failure Reason'] = df['Failure Reason'].replace("'", "")
+            conditions = [
+                f""" ('{row['Scenario'].replace("'","") }', '{row['Step Name'].replace("'","")}', '{row['Failure Reason'].replace("'","")}')"""
+                for _, row in df.iterrows()
+            ]
+            # conditions_tuple_list = [tuple(condition.split(", ")) for condition in conditions]
 
-        query = f"""
-        SELECT scenario, step_name, failure_reason ,count(*)
-        FROM test_cases
-        WHERE (scenario, step_name, failure_reason) IN ({', '.join(conditions)})
-        group by scenario, step_name, failure_reason ;
-        """
-
-
-        # Fetch existing test cases from PostgreSQL
-        existing_test_cases = {}
-
-        # Convert conditions into a list of tuples
-
-        try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute(query)
-            for row in cursor.fetchall():
-                scenario, step, failure_reason, count = row
-                existing_test_cases[(scenario, step, failure_reason)] = count  # Store as dict with count
-            conn.close()
-        except Exception as e:
-            print("Database Error:", e)
-            raise e
-
-        # Process and group the data
-        grouped = df.groupby('Failure Reason').apply(
-            lambda x: sorted(  # Sort descending by count
-                [
-                    {
-                        "TestCase": scenario,
-                        "StepName": f"{step} (Count: {existing_test_cases.get((scenario, step, failure_reason), 0)})",
-                        "FailureReason": failure_reason,
-                        "Color": "red" if (scenario, step, failure_reason) in existing_test_cases else "black",
-                        "Count": existing_test_cases.get((scenario, step, failure_reason), 0)
-                        # Store count separately for sorting
-                    }
-                    for scenario, step, failure_reason in zip(x['Scenario'], x['Step Name'], x['Failure Reason'])
-                ],
-                key=lambda item: item["Count"],  # Sort based on count
-                reverse=True  # Descending order
-            )
-        ).reset_index()
+            query = f"""
+            SELECT scenario, step_name, failure_reason ,count(*)
+            FROM test_cases
+            WHERE (scenario, step_name, failure_reason) IN ({', '.join(conditions)})
+            group by scenario, step_name, failure_reason ;
+            """
 
 
-        processed_data=df.to_dict(orient='records')
+            # Fetch existing test cases from PostgreSQL
+            existing_test_cases = {}
 
-        # Insert DataFrame rows into SQLite database
-        # for _, row in df.iterrows():
-        #     insert_test_case(project_name, report_type,
-        #                      row["TCID"],
-        #                      row["Scenario"],
-        #                      row["Step Name"],
-        #                      row["Failure Reason"],
-        #                      row["Error"],
-        #                      row["Start Time"],
-        #                      row["End Time"],
-        #                      row["Execution Time"],
-        #                      row["Status"]
-        #                      )
-        #
-        # print(f"Inserted {len(df)} test cases into the database.")
+            # Convert conditions into a list of tuples
+
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute(query)
+                for row in cursor.fetchall():
+                    scenario, step, failure_reason, count = row
+                    existing_test_cases[(scenario, step, failure_reason)] = count  # Store as dict with count
+                conn.close()
+            except Exception as e:
+                print("Database Error:", e)
+                raise e
+
+            # Process and group the data
+            grouped = df.groupby('Failure Reason').apply(
+                lambda x: sorted(  # Sort descending by count
+                    [
+                        {
+                            "TestCase": scenario,
+                            "StepName": f"{step} (Count: {existing_test_cases.get((scenario, step, failure_reason), 0)})",
+                            "FailureReason": failure_reason,
+                            "Color": "red" if (scenario, step, failure_reason) in existing_test_cases else "black",
+                            "Count": existing_test_cases.get((scenario, step, failure_reason), 0)
+                            # Store count separately for sorting
+                        }
+                        for scenario, step, failure_reason in zip(x['Scenario'], x['Step Name'], x['Failure Reason'])
+                    ],
+                    key=lambda item: item["Count"],  # Sort based on count
+                    reverse=True  # Descending order
+                )
+            ).reset_index()
 
 
-        # Convert to JSON format for frontend
-        processed_group_data = [
-            {'FailureReason': row['Failure Reason'], 'Details': row[0]}
-            for _, row in grouped.iterrows()
-        ]
-        processed_data = sanitize_data(processed_data)
-        processed_group_data = sanitize_data(processed_group_data)
+            processed_data=df.to_dict(orient='records')
 
-        return jsonify({
-            'message': 'File uploaded successfully',
-            'processed_data': processed_data
-            ,"processed_group_data" :processed_group_data
-        })
+            # Insert DataFrame rows into SQLite database
+            # for _, row in df.iterrows():
+            #     insert_test_case(project_name, report_type,
+            #                      row["TCID"],
+            #                      row["Scenario"],
+            #                      row["Step Name"],
+            #                      row["Failure Reason"],
+            #                      row["Error"],
+            #                      row["Start Time"],
+            #                      row["End Time"],
+            #                      row["Execution Time"],
+            #                      row["Status"]
+            #                      )
+            #
+            # print(f"Inserted {len(df)} test cases into the database.")
+
+
+            # Convert to JSON format for frontend
+            processed_group_data = [
+                {'FailureReason': row['Failure Reason'], 'Details': row[0]}
+                for _, row in grouped.iterrows()
+            ]
+            processed_data = sanitize_data(processed_data)
+            processed_group_data = sanitize_data(processed_group_data)
+            return jsonify({
+                'message': 'File uploaded successfully',
+                'processed_data': processed_data
+                ,"processed_group_data" :processed_group_data
+            })
+    except Exception as e:
+        print(e)
+        return jsonify({"error":"Failed to process the file!, Please try with another report"})
+
 
     return jsonify({'error': 'Invalid file type'}), 400
 
@@ -438,6 +451,7 @@ def upload_file():
 @app.route('/analyze', methods=['POST'])
 def analyze():
     global last_uploaded_file
+    global project_name
 
     if not last_uploaded_file:
         return jsonify({'error': 'No file has been uploaded'}), 400
@@ -462,9 +476,22 @@ def analyze():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/projects', methods=['GET'])
+def get_projects():
+    try:
+        # Implement your logic to fetch projects from your database/storage
+        projects = ['Intellihealth','Agadia' ]  # Replace with actual project names
+        return jsonify({'projects': projects})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/api/chart-data')
+@app.route('/api/chart-data' ,methods=['POST'])
 def get_chart_data():
+    project_name = request.form.get('project_name')
+    # report_type = request.form.get('report_type')
+
+    print(project_name)
+    training_model(project_name)
     file_path = 'confusion_matrix.csv'
     df = pd.read_csv(file_path)
     df['Date'] = pd.to_datetime(df['Date'])
