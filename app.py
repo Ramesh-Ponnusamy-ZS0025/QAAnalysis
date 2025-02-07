@@ -17,7 +17,8 @@ import configparser
 
 from db_utils import db_query_form
 from extract_reports import read_json_report
-from training import training_model
+from training import training_model, predict_new_data, predict_status
+
 app = Flask(__name__)
 
 # Configuration
@@ -491,10 +492,11 @@ def get_chart_data():
     # report_type = request.form.get('report_type')
 
     print(project_name)
-    training_model(project_name)
-    file_path = 'confusion_matrix.csv'
+    # training_model(project_name)
+    # final_predictions, df = predict_status(project_name)
+    file_path = project_name+'_confusion_matrix.csv'
     df = pd.read_csv(file_path)
-    df['Date'] = pd.to_datetime(df['Date'])
+    df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
 
     # Aggregate Data
     actual_counts = df.groupby(['Date', 'Actual'])['Count'].sum().unstack(fill_value=0)
