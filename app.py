@@ -412,20 +412,20 @@ def upload_file():
             processed_data=df.to_dict(orient='records')
 
             # Insert DataFrame rows into SQLite database
-            # for _, row in df.iterrows():
-            #     insert_test_case(project_name, report_type,
-            #                      row["TCID"],
-            #                      row["Scenario"],
-            #                      row["Step Name"],
-            #                      row["Failure Reason"],
-            #                      row["Error"],
-            #                      row["Start Time"],
-            #                      row["End Time"],
-            #                      row["Execution Time"],
-            #                      row["Status"]
-            #                      )
-            #
-            # print(f"Inserted {len(df)} test cases into the database.")
+            for _, row in df.iterrows():
+                insert_test_case(project_name, report_type,
+                                 row["TCID"],
+                                 row["Scenario"],
+                                 row["Step Name"],
+                                 row["Failure Reason"],
+                                 row["Error"],
+                                 row["Start Time"],
+                                 row["End Time"],
+                                 row["Execution Time"],
+                                 row["Status"]
+                                 )
+
+            print(f"Inserted {len(df)} test cases into the database.")
 
 
             # Convert to JSON format for frontend
