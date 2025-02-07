@@ -17,7 +17,7 @@ import configparser
 
 from db_utils import db_query_form
 from extract_reports import read_json_report
-from training import training_model, predict_new_data, predict_status
+# from training import training_model, predict_new_data, predict_status
 
 app = Flask(__name__)
 
