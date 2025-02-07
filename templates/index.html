@@ -171,9 +171,60 @@
     .hidden {
     display: none;
 }
+@keyframes slide-in {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}
+
+.animate-slide-in {
+    animation: slide-in 0.3s ease-out;
+}
+
+.input-error {
+    border-color: #EF4444;
+    background-color: #FEF2F2;
+}
+
+.loading-spinner {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 50;
+    display: none;  /* Changed from display: flex to display: none */
+    align-items: center;
+    justify-content: center;
+}
+
+.loading-spinner.show {
+    display: flex;  /* Will only show when .show class is added */
+}
 </style>
 </head>
 <body class="bg-gray-100">
+<!-- Loading Spinner -->
+<div id="loading-spinner" class="loading-spinner">
+    <div class="bg-white p-4 rounded-lg shadow-lg flex items-center space-x-3">
+        <div class="animate-spin rounded-full h-8 w-8 border-4 border-purple-500 border-t-transparent"></div>
+        <span class="text-gray-700">Loading...</span>
+    </div>
+</div>
+
+<!-- Error Alert -->
+<div id="error-alert" class="fixed top-4 right-4 z-50 max-w-md hidden">
+    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg flex items-start">
+        <div id="error-message" class="flex-grow"></div>
+        <button
+            onclick="closeError()"
+            class="ml-4 text-red-500 hover:text-red-700 focus:outline-none"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+        </button>
+    </div>
+</div>
+
     <div class="main-container">
         <div class="content-card bg-white rounded-lg shadow-lg">
             <!-- Header -->
@@ -218,7 +269,7 @@
                     <input type="file" id="file-upload" class="hidden" accept=".html,.xlsx,.json,.xml">
                     <label for="file-upload" class="cursor-pointer">
                         <div class="text-gray-600 text-sm">Click or drag file to this area to upload</div>
-                        <div class="text-xs text-gray-500 mt-2">Formats accepted are .json and .zip</div>
+                        <div class="text-xs text-gray-500 mt-2">Formats accepted are .json, .html and .excel</div>
                     </label>
                     <div id="selected-file" class="mt-2  text-xs text-green-500"></div>
                     <div id="upload-status" class="mt-2 text-xs text-gray-500"></div>
@@ -281,21 +332,118 @@
 <!--                <p class="text-sm">Predict content goes here</p>-->
 <!--            </div>-->
              <div id="predict-tab" class="tab-content">
-                <h2 class="section-title">Prediction Analysis</h2>
+    <div class="mb-6 p-4">
+        <div class="max-w-md">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Select Project</label>
+            <div class="flex space-x-4">
+                <select id="predict-project-select" class="flex-grow block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm">
+                    <option value="">Select a project</option>
+                </select>
+                <span id="predict-project-error" class="text-red-500 text-xs hidden">Project name is required</span>
 
-                <div class="charts-grid">
-                    <!-- The line charts will be rendered here in a 2-column grid -->
-                </div>
-
-                <div class="confusion-matrix-section">
-                    <h2 class="section-title">Confusion Matrix</h2>
-                    <div id="confusion-matrix-container"></div>
-                </div>
+                <button id="load-prediction-btn"
+                    class = "purple-button text-white px-6 py-2 text-sm rounded-md shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled>
+                     Submit
+                </button>
             </div>
+        </div>
+    </div>
+
+    <h2 class="section-title">Prediction Analysis</h2>
+    <div class="charts-grid">
+        <!-- Charts will be rendered here -->
+    </div>
+
+    <div class="confusion-matrix-section">
+        <h2 class="section-title">Confusion Matrix</h2>
+        <div id="confusion-matrix-container"></div>
+    </div>
+</div>
         </div>
         </div>
     </div>
  <script>
+ let chartDataCache = null;
+ let projectsLoaded = false;
+
+function showLoading() {
+    document.getElementById('loading-spinner').classList.add('show');
+}
+
+function hideLoading() {
+    document.getElementById('loading-spinner').classList.remove('show');
+}
+
+// Error handling functions
+function showError(message) {
+    const errorAlert = document.getElementById('error-alert');
+    const errorMessage = document.getElementById('error-message');
+    errorMessage.textContent = message;
+    errorAlert.classList.remove('hidden');
+    setTimeout(() => {
+        closeError();
+    }, 5000); // Auto-close after 5 seconds
+}
+
+function closeError() {
+    document.getElementById('error-alert').classList.add('hidden');
+}
+
+document.getElementById('project-name').addEventListener('input', validateForm);
+document.getElementById('file-upload').addEventListener('change', function(event) {
+    var fileName = event.target.files[0] ? event.target.files[0].name : 'No file selected';
+    document.getElementById('selected-file').textContent = 'Selected file: ' + fileName;
+    validateForm();
+});
+
+function validatePredictForm() {
+    const projectName = document.getElementById('predict-project-select');
+    let isValid = true;
+    if (!projectName.value.trim()) {
+        projectName.classList.add('input-error');
+        document.getElementById('predict-project-select').classList.remove('hidden');
+        isValid = false;
+    } else {
+        projectName.classList.remove('input-error');
+        document.getElementById('predict-project-error').classList.add('hidden');
+    }
+
+    document.getElementById('load-prediction-btn').disabled = !isValid;
+    document.getElementById('load-prediction-btn').classList.toggle('opacity-50', !isValid);
+
+    return isValid;
+}
+
+
+// Form validation
+function validateForm() {
+    const projectName = document.getElementById('project-name');
+    const fileUpload = document.getElementById('file-upload');
+    let isValid = true;
+
+    if (!projectName.value.trim()) {
+        projectName.classList.add('input-error');
+        document.getElementById('project-name-error').classList.remove('hidden');
+        isValid = false;
+    } else {
+        projectName.classList.remove('input-error');
+        document.getElementById('project-name-error').classList.add('hidden');
+    }
+
+    if (!fileUpload.files.length) {
+        fileUpload.parentElement.classList.add('input-error');
+        isValid = false;
+    } else {
+        fileUpload.parentElement.classList.remove('input-error');
+    }
+
+    document.getElementById('process-button').disabled = !isValid;
+    document.getElementById('process-button').classList.toggle('opacity-50', !isValid);
+
+    return isValid;
+}
+
   document.getElementById('file-upload').addEventListener('change', function(event) {
         var fileName = event.target.files[0] ? event.target.files[0].name : 'No file selected';
         document.getElementById('selected-file').textContent = 'Selected file: ' + fileName;
@@ -327,22 +475,22 @@
 
                 // Updated tab switching functionality
                 function switchTab(tabId) {
-                        document.querySelectorAll('.tab-content').forEach(content => {
-                            content.classList.remove('active');
-                        });
+                            document.querySelectorAll('.tab-content').forEach(content => {
+                                content.classList.remove('active');
+                            });
 
-                        document.querySelectorAll('.tab-button').forEach(btn => {
-                            btn.classList.remove('active');
-                        });
+                            document.querySelectorAll('.tab-button').forEach(btn => {
+                                btn.classList.remove('active');
+                            });
 
-                        document.getElementById(`${tabId}-tab`).classList.add('active');
-                        document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+                            document.getElementById(`${tabId}-tab`).classList.add('active');
+                            document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
 
-                        // Fetch chart data only when the "Predict" tab is clicked
-                        if (tabId === "predict") {
-                            fetchChartData();
+                            // Load projects when switching to predict tab
+                            if (tabId === "predict") {
+                                loadProjects();
+                            }
                         }
-                    }
 
                 // Attach event listeners
                     document.querySelectorAll('.tab-button').forEach(button => {
@@ -353,6 +501,11 @@
 
                 // File upload handling
                 document.getElementById('process-button').addEventListener('click', async () => {
+                    console.log('print process');
+                 if (!validateForm()) {
+                        return;
+                    }
+
                     const file = document.getElementById('file-upload').files[0];
                     if (!file) return;
 
@@ -365,9 +518,10 @@
                     formData.append('report_type', reportType);
 
                     try {
+
                         const uploadStatus = document.getElementById('upload-status');
                         uploadStatus.textContent = 'Uploading...';
-
+                        showLoading();
                         const response = await fetch('/upload', {
                             method: 'POST',
                             body: formData
@@ -376,35 +530,45 @@
                         const data = await response.json();
                         console.log(data);
                         if (response.ok) {
-                            uploadStatus.textContent = 'File uploaded successfully';
-                            uploadStatus.classList.add('text-green-600');
-                            analysisData = data.processed_group_data;
+                            if (data.hasOwnProperty('processed_data')) {
+                                uploadStatus.textContent = 'File uploaded successfully';
+                                uploadStatus.classList.add('text-green-600');
+                                analysisData = data.processed_group_data;
 
-                            // Update results table
-                            const resultsBody = document.getElementById('results-body');
-                            resultsBody.innerHTML = data.processed_data.map(row => `
-                                <tr>
-                                <td class="px-6 py-4 text-sm text-gray-500">${row["TCID"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Scenario"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Step Name"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Failure Reason"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Status"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Start Time"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["End Time"]}</td>
-                                    <td class="px-6 py-4 text-sm text-gray-500">${row["Execution Time"]}</td>
-                                </tr>
-                            `).join('');
+                                // Update results table
+                                const resultsBody = document.getElementById('results-body');
+                                resultsBody.innerHTML = data.processed_data.map(row => `
+                                    <tr>
+                                    <td class="px-6 py-4 text-sm text-gray-500">${row["TCID"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["Scenario"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["Step Name"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["Failure Reason"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["Status"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["Start Time"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["End Time"]}</td>
+                                        <td class="px-6 py-4 text-sm text-gray-500">${row["Execution Time"]}</td>
+                                    </tr>
+                                `).join('');
 
-                            document.getElementById('next-button').disabled = false;
+                                document.getElementById('next-button').disabled = false;
+                                }
+                             else{
+                              console.log(data.error);
+                             throw new Error(data.error || 'An error occurred while uploading the file');
+                                }
                         } else {
-                            uploadStatus.textContent = data.error;
-                            uploadStatus.classList.add('text-red-600');
+
+                            //uploadStatus.textContent = data.error;
+                           // uploadStatus.classList.add('text-red-600');
+                             console.log('data');
+                            throw new Error(data.error || 'An error occurred while uploading the file');
                         }
-                    } catch (error) {
-                        console.error('Error:', error);
-                        uploadStatus.textContent = 'An error occurred while uploading the file';
-                        uploadStatus.classList.add('text-red-600');
-                    }
+                      } catch (error) {
+                            console.error('Error:', error);
+                            showError(error.message);
+                        } finally {
+                            hideLoading();
+                        }
                 });
 
                 // Updated Next button handling
@@ -439,20 +603,113 @@
                 document.getElementById('next-button').disabled = true;
 
                 document.addEventListener("DOMContentLoaded", function() {
-                    if (document.querySelector('[data-tab="predict"]')) {
-                        document.querySelector('[data-tab="predict"]').addEventListener("click", fetchChartData);
-                    }
+
+                    // Project selection change handler
+                    const projectSelect = document.getElementById('predict-project-select');
+                    projectSelect.addEventListener('change', handleProjectSelection);
+
+                    // Load prediction button click handler
+                    const loadPredictionBtn = document.getElementById('load-prediction-btn');
+                    loadPredictionBtn.addEventListener('click', fetchChartData);
                 });
 
-        function fetchChartData() {
-        console.log('fetch');
-                fetch('/api/chart-data')
-                    .then(response => response.json())
-                    .then(data => { renderCharts(data);
-                                    renderConfusionMatrix(data.confusion_matrix);
-                                    })
-                    .catch(error => console.error("Error fetching data:", error));
-            }
+
+//--------------------------------------------------------------------------------
+
+                    // Function to fetch and populate projects
+                    async function loadProjects() {
+                        if (projectsLoaded) return; // Don't fetch if already loaded
+
+                        try {
+                            showLoading();
+                            const response = await fetch('/api/projects');
+
+                            if (!response.ok) {
+                                throw new Error('Failed to fetch projects');
+                            }
+
+                            const data = await response.json();
+                            const projectSelect = document.getElementById('predict-project-select');
+
+                            // Clear existing options except the first one
+                            projectSelect.innerHTML = '<option value="">Select a project</option>';
+
+                            // Add new options
+                            data.projects.forEach(project => {
+                                const option = document.createElement('option');
+                                option.value = project;
+                                option.textContent = project;
+                                projectSelect.appendChild(option);
+                            });
+
+                            projectsLoaded = true;
+                        } catch (error) {
+                            showError(error.message);
+                        } finally {
+                            hideLoading();
+                        }
+                    }
+
+                    // Function to handle project selection
+                    function handleProjectSelection() {
+                        const projectSelect = document.getElementById('predict-project-select');
+                        const loadButton = document.getElementById('load-prediction-btn');
+                        const errorMessage = document.getElementById('predict-project-error');
+                        console.log(projectSelect.value);
+                       // loadButton.disabled = !projectSelect.value;
+                         // Check if a valid project is selected (not empty)
+                        if (projectSelect.value) {
+                            loadButton.disabled = false;
+                            errorMessage.classList.add('hidden'); // Hide error message if any
+                             document.getElementById('load-prediction-btn').disabled = false;
+                            document.getElementById('load-prediction-btn').classList.toggle('opacity-50', false);
+                        } else {
+                            loadButton.disabled = true;
+                            errorMessage.classList.remove('hidden'); // Show error if no project selected
+                             document.getElementById('load-prediction-btn').disabled = true;
+                            document.getElementById('load-prediction-btn').classList.toggle('opacity-50', true);
+                        }
+
+                    }
+
+                    // Updated fetchChartData function
+                    async function fetchChartData() {
+                        const projectSelect = document.getElementById('predict-project-select');
+                        const selectedProject = projectSelect.value;
+                        if (!validatePredictForm()) {
+                        return;
+                    }
+
+
+
+                        try {
+                            showLoading();
+                            const formData = new FormData();
+                            formData.append('project_name', selectedProject);
+
+                            const response = await fetch('/api/chart-data', {
+                                method: 'POST',
+                                body: formData
+                            });
+
+                            const data = await response.json();
+
+                            if (!response.ok) {
+                                throw new Error(data.error || 'An error occurred while fetching chart data');
+                            }
+
+                            renderCharts(data);
+                            renderConfusionMatrix(data.confusion_matrix);
+                        } catch (error) {
+                            console.error("Error fetching data:", error);
+                            showError(error.message);
+                        } finally {
+                            hideLoading();
+                        }
+                    }
+
+
+
 
         function renderCharts(data) {
                 let chartContainer = document.querySelector(".charts-grid");
@@ -596,6 +853,7 @@
 
     // Clear results table
     document.getElementById('results-body').innerHTML = '';
+    chartDataCache = null;
 
     // Clear analysis data
     if (typeof analysisData !== 'undefined') {
