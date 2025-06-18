@@ -13,7 +13,7 @@ def format_date(input_string):
    except ValueError:
         print("Invalid date format.")
 
-def read_json_report(file_path,filename ,file_type ,project_name):
+def read_allure_json_report(file_path,filename ,file_type ,project_name):
     data_list =[]
     json_data =None
     with open(file_path, 'r') as file:
@@ -53,3 +53,46 @@ def read_json_report(file_path,filename ,file_type ,project_name):
     df['TCID'] = df['Scenario'].str.extract(r'^(C\d+)')
     return df
     # print(count)
+
+
+def read_json_report(filename, filetype, project_name):
+    data_list = []
+    json_data = None
+    file_path = ".//" + filename + "." + filetype
+    with open(file_path, 'r') as file:
+        json_data = json.load(file)
+    #    print(json_data["Agadia_WorkFlow_PaHub_SmokeTest_Job_Chrome_Jenkins_202411211335"]["Test Case level Execution Details"][0])
+    myTable = PrettyTable(
+        ["Scenario", "StepName", "Status", "Failure reason", "error", "StartTime", "EndTime", "ExecutionTime"])
+    cases = json_data[filename]["Test Case level Execution Details"]
+    start_time = format_date(json_data[filename]["Execution Summary"]["Start Time"])
+    end_time = format_date(json_data[filename]["Execution Summary"]["End Time"])
+
+    count = 0
+    for x in cases:
+        print(x["Exec.Status"])
+        if "Failed" in x["Exec.Status"]:
+            count = count + 1
+            myTable.add_row(
+                [x["Test Name"], x["Title"], x["Exec.Status"], x["Failure Reason"], "null", start_time, end_time,
+                 x["Duration"]])
+            data_list.append(
+                [x["Test Name"], x["Title"], x["Failure Reason"], "null", start_time, end_time, x["Duration"],
+                 project_name, x["Exec.Status"]])
+            print(x["Failure Reason"])
+        if "Passed" in x["Exec.Status"]:
+            count = count + 1
+            myTable.add_row(
+                [x["Test Name"], x["Title"], x["Exec.Status"], "null", "null", start_time, end_time, x["Duration"]])
+            data_list.append(
+                [x["Test Name"], x["Title"], "null", "null", start_time, end_time, x["Duration"], project_name,
+                 x["Exec.Status"]])
+        if "Skipped" in x["Exec.Status"]:
+            count = count + 1
+            myTable.add_row(
+                [x["Test Name"], x["Title"], x["Exec.Status"], "null", "null", start_time, end_time, x["Duration"]])
+            data_list.append([x["Test Name"], x["Title"], x["Skip Reason"], "null", start_time, end_time, x["Duration"],
+                              project_name, x["Exec.Status"]])
+    df = pd.DataFrame(myTable.rows, columns=myTable.field_names)
+    df['TCID'] = df['Scenario'].str.extract(r'^(C\d+)')
+    return df

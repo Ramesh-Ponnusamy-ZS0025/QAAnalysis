@@ -14,9 +14,10 @@ import pandas as pd
 import sqlite3
 import psycopg2
 import configparser
+import chardet
 
 from db_utils import db_query_form
-from extract_reports import read_json_report
+from extract_reports import read_allure_json_report,read_json_report
 # from training import training_model, predict_new_data, predict_status
 
 app = Flask(__name__)
@@ -189,59 +190,99 @@ def insert_test_case(project_name,project_type,tcid,scenario, step_name, failure
     conn.close()
 
     # print("Test case inserted successfully.")
+def detect_encoding(file_path):
+    with open(file_path, 'rb') as f:
+        raw = f.read(100000)  # Read first 100KB only
+        result = chardet.detect(raw)
+        encoding = result['encoding']
+        # If encoding is None or ascii (too narrow), assume windows-1252
+        if not encoding or encoding.lower() == 'ascii':
+            encoding = 'windows-1252'
+        return encoding
 
 
-def read_extent_report(file_path,project_name,report_type):
-    data_list = []
-    #  file_path=".//"+filename
-    #  print(file_path)
-    #  with open(file_path, 'r') as f:
-    #    soup = BeautifulSoup(f, 'html.parser')
-    folder_path = 'ExecutionResults/' + project_name
-    # soup = get_file_content_as_soup(folder_path, filename)
-    with open(file_path, 'r', encoding='utf-8') as f:
-        soup = BeautifulSoup(f, 'html.parser')
+def parse_testng_report(soup, project_name):
     myTable = PrettyTable(
-        ["Scenario", "Step Name", "Status", "Failure Reason", "Error", "Start Time", "End Time", "Execution Time"])
+        ["Scenario", "Step Name", "Status", "Failure Reason", "Error", "Start Time", "End Time", "Execution Time"]
+    )
+    table = soup.find('table', class_='table-bordered easy-overview')
+    rows = table.find_all('tr')[2:]  # Skip header + 1 summary row
 
+    for row in rows:
+        cols = row.find_all('td')
+        if len(cols) < 22:
+            continue  # skip invalid rows
+
+        scenario = cols[0].get_text(strip=True)
+        status = cols[4].get_text(strip=True)
+        start_time = cols[20].get_text(strip=True)
+        end_time = cols[21].get_text(strip=True)
+        exec_time = cols[22].get_text(strip=True)
+
+        step_name = cols[31].get_text(strip=True) if len(cols) > 31 else ""
+        reason = "NA" if status.lower() == "passed" else "Check logs"
+
+        myTable.add_row([scenario, step_name, status, reason, "", start_time, end_time, exec_time])
+
+    df = pd.DataFrame(myTable.rows, columns=myTable.field_names)
+    if 'Scenario' in df.columns:
+        df['TCID'] = df['Scenario'].str.extract(r'^(TS\d+)')
+    return df
+
+
+def detect_report_type(file_path):
+    encoding = detect_encoding(file_path)
+    with open(file_path, 'r', encoding=encoding) as f:
+        soup = BeautifulSoup(f, 'html.parser')
+
+    title_text = soup.title.string.strip() if soup.title else ''
+
+    if soup.find('ul', id='test-collection') or 'ExtentReports' in title_text:
+        return 'extent',encoding
+    elif soup.find('table', class_='easy-overview') or 'TestNG Report' in title_text:
+        return 'testng',encoding
+    else:
+        return 'unknown',encoding
+    # Now open the full file using the detected encoding
+    # with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+    #     soup = BeautifulSoup(f, 'html.parser')
+
+
+def parse_extent_report(soup, project_name):
+    myTable = PrettyTable(
+        ["Scenario", "Step Name", "Status", "Failure Reason", "Error", "Start Time", "End Time", "Execution Time"]
+    )
     scenario_list = soup.find('ul', id='test-collection')
-
     for x in scenario_list.find_all('li'):
         test_name = x.find('span', class_='test-name').get_text()
         step_name_arr = x.find_all('td', class_='step-details')
         start_time = x.find('span', title='Test started time').get_text()
         end_time = x.find('span', title='Test ended time').get_text()
         exec_time = x.find('span', title='Time taken to finish').get_text()
-        error = None
-        step_name = None
-        error_list = None
-        reason_list = None
 
         for y in range(len(step_name_arr)):
-            status = None
             step_name = step_name_arr[y].get_text()
-            error = None
-            error_arr = []
-            if "FAIL" in step_name_arr[y].get_text():
-                status = "Failed"
-                error = step_name_arr[y + 1].get_text()
+            if "FAIL" in step_name:
+                error = step_name_arr[y + 1].get_text() if y + 1 < len(step_name_arr) else ""
                 error_arr = error.split("at ")
-                data_list.append(
-                    [test_name, step_name, error_arr[0], "error", start_time, end_time, exec_time, project_name, status])
-                myTable.add_row([test_name, step_name, status, error_arr[0], "error", start_time, end_time, exec_time])
-            elif "Step No:" in step_name_arr[y].get_text():
-                status = "Passed"
-                data_list.append(
-                    [test_name, step_name, "Null", "Null", start_time, end_time, exec_time, project_name, status])
-                myTable.add_row([test_name, step_name, status, "", "", start_time, end_time, exec_time])
+                myTable.add_row([test_name, step_name, "Failed", error_arr[0], "error", start_time, end_time, exec_time])
+            elif "Step No:" in step_name:
+                myTable.add_row([test_name, step_name, "Passed", "", "", start_time, end_time, exec_time])
 
-            status = None
-            step_name = None
-            error = None
     df = pd.DataFrame(myTable.rows, columns=myTable.field_names)
     df['TCID'] = df['Scenario'].str.extract(r'^(C\d+)')
     return df
 
+def read_html_report(file_path,project_name,report_type):
+    report_type,encoding_type = detect_report_type(file_path)
+
+    if report_type == "extent":
+        df = parse_extent_report(BeautifulSoup(open(file_path, 'r', encoding=encoding_type), 'html.parser'), project_name)
+    elif report_type == "testng":
+        df = parse_testng_report(BeautifulSoup(open(file_path, 'r', encoding=encoding_type), 'html.parser'), project_name)
+    else:
+        df = pd.DataFrame()
+    return df
 
 def read_cucumber_report(file_path,project_name,report_type):
     # Read HTML file
@@ -321,7 +362,7 @@ def read_cucumber_report(file_path,project_name,report_type):
 def get_color_code(querystr):
     conn = get_db_connection()
     df = pd.read_sql(querystr,conn=conn)
-    print(df)
+    # print(df)
     conn.close()
 
 @app.route('/upload', methods=['POST'])
@@ -349,14 +390,19 @@ def upload_file():
             file_type = filename.rsplit('.', 1)[1].lower()
             # processed_data = process_file(file_path, file_type)
             if report_type=='Extent Report' and  file_type=='html':
-                df = read_extent_report(file_path,project_name,report_type)
+                df = read_html_report(file_path,project_name,report_type)
             elif report_type=='Allure Report' and  file_type=='json':
                 file_full_name = os.path.basename(file_path)
                 file_name, filetype = file_full_name.split('.')
-                df= read_json_report(file_path,file_name ,file_type ,project_name)
+                df= read_allure_json_report(file_path,file_name ,file_type ,project_name)
+            elif project_name == 'Agadia' and file_type == 'json':
+                df = read_json_report(filename, file_type, project_name, execution_type)
+                # utils.update_database_with_unique_filenames(project_name)
             # df = read_cucumber_report(file_path,project_name,report_type)
             # print(df.columns)
-            df['Scenario']=df['Scenario'].replace("'","")
+
+            if 'Scenario' in df.columns:
+                df['Scenario']=df['Scenario'].replace("'","")
             df['Step Name'] = df['Step Name'].replace("'", "")
             df['Failure Reason'] = df['Failure Reason'].replace("'", "")
             conditions = [
@@ -388,7 +434,7 @@ def upload_file():
                 conn.close()
             except Exception as e:
                 print("Database Error:", e)
-                raise e
+                # raise e
 
             # Process and group the data
             grouped = df.groupby('Failure Reason').apply(
@@ -443,6 +489,7 @@ def upload_file():
             })
     except Exception as e:
         print(e)
+
         return jsonify({"error":"Failed to process the file!, Please try with another report"})
 
 
